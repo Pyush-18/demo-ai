@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 
 export async function sendTallyRequest(xmlRequest) {
   try {
-    const PROXY_URL = "http://localhost:5000/tally";
+    const PROXY_URL = `${import.meta.env.VITE_API_BASE_URL}/tally`;
     const response = await fetch(PROXY_URL, {
       method: "POST",
       headers: { "Content-Type": "application/xml" },
