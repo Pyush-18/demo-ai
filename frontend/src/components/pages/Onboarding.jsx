@@ -24,7 +24,6 @@ export const Onboarding = () => {
     dispatch(setCompanyInfo(data));
 
     const finalData = { ...personalInfo, ...data };
-    console.log("Final onboarding data:", finalData);
 
     const user = auth.currentUser;
     if (user) {

@@ -253,13 +253,10 @@ export const useTransactionProcessor = (
           
           dispatch(addToHistory(rejectedTx));
           
-          console.log(`❌ Transaction ${tx.id} rejected: ${validationError}`);
           continue;
         }
 
         const tallyTx = transformToTallyFormat(tx, bankLedger, partyLedger);
-
-        console.log(`📋 Processing transaction ${tallyTx.id}:`, tallyTx);
 
         await createLedgerIfNotExists(tallyTx.partyLedger);
 

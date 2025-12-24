@@ -19,7 +19,6 @@ export function useTally() {
   });
   const dispatch = useDispatch();
 
-  // FETCH DATA FROM TALLY
   const fetchDataFromTally = async () => {
     try {
       const requestXml = `<ENVELOPE><HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
@@ -42,7 +41,6 @@ export function useTally() {
     }
   };
 
-  // PARSE COMPANY
   const parseCompany = (jsonResponse) => {
     const companyName =
       jsonResponse?.ENVELOPE?.BODY?.IMPORTDATA?.REQUESTDESC?.STATICVARIABLES
@@ -52,7 +50,6 @@ export function useTally() {
   };
 
 
-  // FETCH COMPANY PERIOD
   const fetchCompanyPeriod = async () => {
     const periodXml = `<ENVELOPE><HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
       <BODY><EXPORTDATA><REQUESTDESC><REPORTNAME>List of Companies</REPORTNAME>
@@ -71,7 +68,6 @@ export function useTally() {
     }
   };
 
-  // CREATE VOUCHER XML
   const createVoucherXML = (tx, bankLedger, targetLedger) => {
     const date = new Date(tx.date);
     const tallyDate = `${date.getFullYear()}${String(
@@ -92,57 +88,7 @@ export function useTally() {
     }</AMOUNT></ALLLEDGERENTRIES.LIST></VOUCHER></TALLYMESSAGE></REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>`;
   };
 
-  //POST APPROVED TRANSACTIONS
-  // const postApprovedTransactions = async (
-  //   transactionsToPost,
-  //   bankLedger,
-  //   bulkLedger = null
-  // ) => {
-
-  //   console.log("--- POST APPROVED TRANSACTIONS STARTED ---")
-  //   const successfulPosts = [];
-  //   const failedPosts = [];
-
-  //   for (const tx of transactionsToPost) {
-  //     const targetLedger = bulkLedger || tx.targetLedger;
-  //     let rejectedTx = null;
-
-  //     if (!targetLedger || bankLedger === targetLedger) {
-  //       rejectedTx = { ...tx };
-  //       rejectedTx.reason = !targetLedger
-  //         ? "No target ledger assigned"
-  //         : "Bank and target ledger same";
-  //         console.log("REJECTION 1 (Local Fail):", rejectedTx);
-  //       failedPosts.push(rejectedTx);
-  //       continue;
-  //     }
-
-  //     try {
-  //       const voucherXml = createVoucherXML(tx, bankLedger, targetLedger);
-  //       const responseXml = await sendTallyRequest(voucherXml);
-  //       const responseJson = xmlToJson(responseXml);
-
-  //       if (parseInt(responseJson?.RESPONSE?.CREATED?._text || 0) > 0) {
-  //         successfulPosts.push(tx);
-  //       } else {
-  //         rejectedTx = { ...tx };
-  //         rejectedTx.reason = getTallyError(responseJson);
-  //         console.log("REJECTION 2 (Tally Fail):", rejectedTx);
-  //         failedPosts.push(rejectedTx);
-  //       }
-  //     } catch (err) {
-  //       rejectedTx = { ...tx };
-  //       rejectedTx.reason = err.message;
-  //       failedPosts.push(rejectedTx);
-  //     }
-  //   }
-
-  //   setRejectedTransactions(failedPosts);
-
-  //   return { successfulPosts, failedPosts };
-  // };
-
-  // CREATE NEW LEDGER
+  
   const createNewLedger = async ({
     ledgerName,
     parentGroup,
@@ -181,7 +127,6 @@ export function useTally() {
     }
   };
 
-  //RETURN ALL HOOK DATA & FUNCTIONS
   return {
     company,
     companyPeriod,

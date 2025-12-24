@@ -432,7 +432,6 @@ const SalesPurchaseSection = () => {
             );
 
             const result = await response.json();
-            console.log("response from ai ", result);
 
             if (!result.success) {
               throw new Error(

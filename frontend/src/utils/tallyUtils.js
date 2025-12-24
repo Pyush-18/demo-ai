@@ -105,7 +105,6 @@ export function jsonToXmlExport(jsonObject) {
 
 
 export function exportToJson(jsonData, fileName = "data.json") {
-  console.log("exportToJson called with fileName:", fileName);
 
   const blob = new Blob(
     [
@@ -120,20 +119,16 @@ export function exportToJson(jsonData, fileName = "data.json") {
   a.href = url;
   a.download = fileName;
 
-  // Append to body, click, then cleanup
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
 
-  // Delay URL revocation
   setTimeout(() => {
     URL.revokeObjectURL(url);
-    console.log("JSON blob URL revoked");
   }, 1000);
 }
 
 export function exportToXml(jsonData, fileName = "data.xml") {
-  console.log("exportToXml called with fileName:", fileName);
 
   try {
     const jsonObj =
@@ -151,7 +146,6 @@ export function exportToXml(jsonData, fileName = "data.xml") {
 
     setTimeout(() => {
       URL.revokeObjectURL(url);
-      console.log("XML blob URL revoked");
     }, 1000);
   } catch (e) {
     toast.error("Invalid JSON data for XML export.");
@@ -161,7 +155,6 @@ export function exportToXml(jsonData, fileName = "data.xml") {
 }
 
 export async function exportToExcel(jsonData, fileName = "data.xlsx") {
-  console.log("exportToExcel called with fileName:", fileName);
 
   try {
     const jsonObj =
@@ -170,8 +163,6 @@ export async function exportToExcel(jsonData, fileName = "data.xlsx") {
       jsonObj?.ENVELOPE?.BODY?.IMPORTDATA?.REQUESTDATA?.TALLYMESSAGE || jsonObj;
 
     const dataArray = Array.isArray(items) ? items : [items];
-
-    console.log("Creating workbook with", dataArray.length, "rows");
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Tally Data");
@@ -185,36 +176,25 @@ export async function exportToExcel(jsonData, fileName = "data.xlsx") {
       });
     }
 
-    console.log("Generating Excel buffer...");
     const buffer = await workbook.xlsx.writeBuffer();
-    console.log("Buffer generated, size:", buffer.byteLength, "bytes");
 
     const blob = new Blob([buffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
 
-    console.log("Blob created, creating download URL...");
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = fileName;
     a.style.display = "none"; 
-
-    console.log("Appending link and triggering download...");
     document.body.appendChild(a);
-
-
     void a.offsetHeight;
-
     a.click();
-
-    console.log("Download triggered, cleaning up...");
 
 
     setTimeout(() => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      console.log("Excel cleanup complete - element removed and URL revoked");
     }, 2000);
   } catch (e) {
     console.error("Excel export error:", e);
@@ -225,7 +205,6 @@ export async function exportToExcel(jsonData, fileName = "data.xlsx") {
 }
 
 export function exportToPdf(jsonData, fileName = "data.pdf") {
-  console.log("exportToPdf called with fileName:", fileName);
 
   try {
     const doc = new jsPDF();
@@ -236,8 +215,6 @@ export function exportToPdf(jsonData, fileName = "data.pdf") {
     const lines = doc.splitTextToSize(text, 180);
     doc.text(lines, 10, 10);
     doc.save(fileName);
-
-    console.log("PDF saved successfully");
   } catch (e) {
     toast("Could not export data to PDF.");
     console.error(e);

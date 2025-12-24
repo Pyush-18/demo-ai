@@ -152,8 +152,6 @@ async function processChunk(
   totalChunks
 ) {
   try {
-    console.log(`  📦 Processing chunk ${chunkIndex + 1}/${totalChunks}...`);
-
     const completion = await groq.chat.completions.create({
       model: "moonshotai/kimi-k2-instruct-0905",
       messages: [
@@ -188,11 +186,6 @@ async function processChunk(
     const txCount = Object.values(parsed).reduce(
       (sum, txs) => sum + (Array.isArray(txs) ? txs.length : 0),
       0
-    );
-    console.log(
-      `  ✓ Chunk ${
-        chunkIndex + 1
-      }/${totalChunks} processed (${txCount} transactions)`
     );
 
     return parsed;
@@ -243,10 +236,7 @@ async function callGroqAndSegregate(fileContent, bankLedger, bankName) {
     const CHUNK_THRESHOLD = 4000; 
 
     if (fileSize <= CHUNK_THRESHOLD) {
-      console.log(
-        `  📄 File size: ${fileSize} chars (processing without chunking)`
-      );
-
+  
       const completion = await groq.chat.completions.create({
         model: "moonshotai/kimi-k2-instruct-0905",
         messages: [
@@ -278,11 +268,7 @@ async function callGroqAndSegregate(fileContent, bankLedger, bankName) {
 
       return parsed;
     }
-
-    console.log(`  📄 File size: ${fileSize} chars (using chunking strategy)`);
-
     const chunks = chunkCSVData(fileContent, CHUNK_THRESHOLD);
-    console.log(`  🔪 Split into ${chunks.length} chunks\n`);
 
     const CONCURRENCY_LIMIT = 3;
     const chunkResults = [];
@@ -297,12 +283,9 @@ async function callGroqAndSegregate(fileContent, bankLedger, bankName) {
       chunkResults.push(...batchResults);
 
       if (i + CONCURRENCY_LIMIT < chunks.length) {
-        console.log(`  ⏸️  Pausing 1s before next batch...\n`);
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
-
-    console.log(`\n  🔄 Merging ${chunkResults.length} chunk results...`);
     const mergedResults = mergeChunkResults(chunkResults);
 
     const totalTransactions = Object.values(mergedResults).reduce(
@@ -310,10 +293,6 @@ async function callGroqAndSegregate(fileContent, bankLedger, bankName) {
       0
     );
     const categoryCount = Object.keys(mergedResults).length;
-
-    console.log(`  ✓ Merge complete:`);
-    console.log(`    - Categories: ${categoryCount}`);
-    console.log(`    - Total Transactions: ${totalTransactions}`);
 
     return mergedResults;
   } catch (err) {
@@ -352,9 +331,6 @@ function chunkPDFText(pdfText, chunkSize = 8000) {
 
 async function processPDFChunk(chunkContent, chunkIndex, totalChunks) {
   try {
-    console.log(
-      `  📦 Processing PDF chunk ${chunkIndex + 1}/${totalChunks}...`
-    );
 
     const systemPrompt = `
 You are an expert AI Invoice Parser specialized in Indian Tax Invoices.
@@ -423,8 +399,6 @@ Return ONLY valid JSON.
 
     const rawResponse = completion.choices[0]?.message?.content?.trim() || "{}";
     const parsedData = JSON.parse(rawResponse);
-
-    console.log(`  ✓ PDF Chunk ${chunkIndex + 1}/${totalChunks} processed`);
     return parsedData;
   } catch (err) {
     console.error(
@@ -490,7 +464,6 @@ function mergeInvoiceChunks(chunkResults) {
 }
 async function extractInvoiceData(fileBlob) {
   try {
-    console.log(" 📄 Loading PDF...");
 
     const loader = new PDFLoader(fileBlob, {
       splitPages: false,
@@ -498,15 +471,10 @@ async function extractInvoiceData(fileBlob) {
 
     const docs = await loader.load();
     const pdfText = docs[0].pageContent;
-
-    console.log(`  ✓ Extracted ${pdfText.length} characters of text.`);
-
     const CHUNK_THRESHOLD = 8000;
 
     if (pdfText.length <= CHUNK_THRESHOLD) {
-      console.log(
-        `  📄 PDF size: ${pdfText.length} chars (processing without chunking)`
-      );
+  
 
       const systemPrompt = `
 You are an expert AI Invoice Parser specialized in Indian Tax Invoices.
@@ -569,7 +537,6 @@ Your goal is to extract structured data from the provided invoice text.
 Return ONLY valid JSON. No markdown, no explanations, no calculations in the output.
 `;
 
-      console.log("  🧠 Analyzing with AI...");
 
       let attempts = 0;
       const maxAttempts = 3;
@@ -601,15 +568,12 @@ Return ONLY valid JSON. No markdown, no explanations, no calculations in the out
             throw new Error("Totals contain expressions instead of numbers");
           }
 
-          console.log("  ✓ Extraction Complete");
           return parsedData;
         } catch (err) {
           attempts++;
           lastError = err;
-          console.log(`  ⚠️  Attempt ${attempts} failed: ${err.message}`);
 
           if (attempts < maxAttempts) {
-            console.log(`  🔄 Retrying (${attempts}/${maxAttempts})...`);
             await new Promise((resolve) => setTimeout(resolve, 1000));
           }
         }
@@ -617,13 +581,7 @@ Return ONLY valid JSON. No markdown, no explanations, no calculations in the out
 
       throw lastError;
     }
-
-    console.log(
-      `  📄 PDF size: ${pdfText.length} chars (using chunking strategy)`
-    );
-
     const chunks = chunkPDFText(pdfText, CHUNK_THRESHOLD);
-    console.log(`  🔪 Split into ${chunks.length} chunks\n`);
 
     const CONCURRENCY_LIMIT = 2;
     const chunkResults = [];
@@ -638,21 +596,13 @@ Return ONLY valid JSON. No markdown, no explanations, no calculations in the out
       chunkResults.push(...batchResults);
 
       if (i + CONCURRENCY_LIMIT < chunks.length) {
-        console.log(`  ⏸️  Pausing 1s before next batch...\n`);
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
 
-    console.log(`\n  🔄 Merging ${chunkResults.length} chunk results...`);
     const mergedResults = mergeInvoiceChunks(chunkResults);
-
-    console.log(`  ✓ Merge complete:`);
-    console.log(`    - Items extracted: ${mergedResults.items.length}`);
-    console.log(`    - Grand Total: ${mergedResults.grandTotal}`);
-
     return mergedResults;
   } catch (err) {
-    console.error("  ❌ PDF Extraction Error:", err);
     throw new Error("Failed to extract invoice data");
   }
 }

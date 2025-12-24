@@ -33,9 +33,6 @@ const InfoCard = ({ icon: Icon, label, value }) => (
 export const CompanyInfo = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { companyInfo } = useSelector((state) => state.auth);
-
-  console.log(companyInfo)
-  
   return (
     <div className="max-w-5xl mx-auto p-6">
       <div className="flex justify-between items-end mb-8">

@@ -141,16 +141,12 @@ export const loginUser = createAsyncThunk(
         const subUserData = subUserDoc.data();
 
         if (!subUserData.authAccountCreated) {
-          console.log("Creating Firebase Auth account for sub-user...");
-
           try {
             const userCredential = await createUserWithEmailAndPassword(
               auth,
               cleanEmail,
               password
             );
-
-            console.log("Auth account created:", userCredential.user.uid);
 
             await updateProfile(userCredential.user, {
               displayName: subUserData.name,
@@ -193,7 +189,6 @@ export const loginUser = createAsyncThunk(
             console.error("Error creating Auth account:", authError);
 
             if (authError.code === "auth/email-already-in-use") {
-              console.log("Email already in use, trying to sign in...");
 
               try {
                 const userCredential = await signInWithEmailAndPassword(

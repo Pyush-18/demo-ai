@@ -17,6 +17,7 @@ import {
   UserRoundCheck,
   Bell,
   Hash,
+  Loader,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import {
@@ -44,6 +45,7 @@ const BankingDashboard = () => {
   const [selectCount, setSelectCount] = useState("");
   const [deletedHistory, setDeletedHistory] = useState([]);
   const [showSpeedyModal, setShowSpeedyModal] = useState(false);
+  const [isPostingToTally, setIsPostingToTally] = useState(false);
   const { files, selectedFileId, selectedCompany, postingMode } = useSelector(
     (state) => state.tally
   );
@@ -91,7 +93,6 @@ const BankingDashboard = () => {
       localStorage.setItem(modalKey, "true");
     }
   }, [transactions, selectedFileId]);
-  console.log("selected ledger ", ledgerSelections);
   useEffect(() => {
     if (!currentFile?.selectedLedger || !transactions?.length) return;
     setLedgerSelections((prev) => {
@@ -115,37 +116,20 @@ const BankingDashboard = () => {
   useEffect(() => {
     const data = location?.state?.transactions;
     const fileId = location?.state?.id || "unknown-file";
-    console.log("🔍 INITIALIZATION CHECK:", {
-      hasLocationData: !!data,
-      fileId,
-      currentFileId: currentFile?.id,
-      currentFileHasTransactions: !!currentFile?.transactions,
-      currentFileTransactionsCount: currentFile?.transactions?.length || 0,
-      isInitialized,
-      companyId,
-    });
+    
     if (currentFile?.id === fileId && currentFile?.transactions?.length > 0) {
-      console.log("✅ Using existing Redux data - SKIP INITIALIZATION");
       if (!isInitialized) {
         setIsInitialized(true);
       }
       return;
     }
     if (isInitialized) {
-      console.log("⚠️ Already initialized - SKIP");
       return;
     }
     if (!data || !companyId) {
-      console.log("⚠️ No location data or companyId - SKIP");
       return;
     }
-    console.log("🚀 INITIALIZING NEW TRANSACTIONS:", {
-      transactionCount: Object.keys(data).length,
-      fileId,
-      companyId,
-    });
     if (!currentFile) {
-      console.log("📁 Creating new banking file");
       dispatch(
         addBankingFile({
           companyId,
@@ -182,11 +166,6 @@ const BankingDashboard = () => {
       status: "Pending",
       selectedLedger: null,
     }));
-    console.log("💾 Dispatching setTransactions with:", {
-      companyId,
-      fileId,
-      transactionCount: enriched.length,
-    });
     dispatch(
       setTransactions({
         companyId,
@@ -195,7 +174,6 @@ const BankingDashboard = () => {
       })
     );
     setIsInitialized(true);
-    console.log("✅ Initialization complete");
   }, [
     companyId,
     location?.state,
@@ -206,26 +184,7 @@ const BankingDashboard = () => {
     user?.displayName,
   ]);
   useEffect(() => {
-    console.log("🔄 Navigation detected:", {
-      pathname: location.pathname,
-      hasLocationState: !!location.state,
-      locationStateKeys: location.state ? Object.keys(location.state) : [],
-    });
-  }, [location]);
-  useEffect(() => {
-    console.log("📊 Redux State Update:", {
-      selectedFileId,
-      currentFileId: currentFile?.id,
-      transactionCount: transactions?.length || 0,
-      transactionStatuses: transactions?.reduce((acc, tx) => {
-        acc[tx.status] = (acc[tx.status] || 0) + 1;
-        return acc;
-      }, {}),
-    });
-  }, [selectedFileId, currentFile?.id, transactions]);
-  useEffect(() => {
     if (isInitialized && location?.state?.transactions) {
-      console.log("🧹 Clearing location.state to prevent stale data");
       navigate(location.pathname, {
         replace: true,
         state: {
@@ -386,6 +345,18 @@ const BankingDashboard = () => {
     ],
     []
   );
+
+  const handlePostToTally = async () => {
+    setIsPostingToTally(true);
+    try {
+      await postApprovedTransactions();
+    } catch (error) {
+      toast.error("Failed to post transactions");
+    } finally {
+      setIsPostingToTally(false);
+    }
+  };
+
   const toggleSelectAll = useCallback(() => {
     const allSelectableTransactions = filteredTransactions.filter(
       (tx) => tx.status !== "Deleted"
@@ -644,7 +615,7 @@ const BankingDashboard = () => {
                 </Link>
                 <button
                   onClick={() => navigate("/history")}
-                  className="relative p-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all active:scale-95 group"
+                  className="relative p-2.5 cursor-pointer rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all active:scale-95 group"
                 >
                   <Bell size={20} />
                   {hasNotifications && (
@@ -894,11 +865,25 @@ const BankingDashboard = () => {
                 <span className="hidden sm:inline">Delete</span>
               </button>
               <button
-                onClick={postApprovedTransactions}
-                className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600 flex items-center gap-2"
+                onClick={handlePostToTally}
+                disabled={isPostingToTally}
+                className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-all ${
+                  isPostingToTally
+                    ? "bg-purple-500/50 cursor-not-allowed"
+                    : "bg-gradient-to-r cursor-pointer from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                } text-white`}
               >
-                <Check size={18} />
-                <span className="hidden sm:inline">Send to Tally</span>
+                {isPostingToTally ? (
+                  <>
+                    <Loader size={20} className="animate-spin"/>
+                    <span className="hidden sm:inline">Posting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check size={18} />
+                    <span className="hidden sm:inline">Send to Tally</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -954,7 +939,7 @@ const BankingDashboard = () => {
           )}
         </div>
         <div className="bg-slate-900/50 backdrop-blur-sm border border-purple-500/20 rounded-2xl overflow-hidden">
-          <div >
+          <div>
             <table className="w-full">
               <thead>
                 <tr className="border-b border-purple-500/20">

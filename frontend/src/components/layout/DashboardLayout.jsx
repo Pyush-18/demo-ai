@@ -55,7 +55,7 @@ const convertToTourSteps = (steps) => {
   }));
 };
 
-function DashboardContent_Inner() {
+function DashboardContent_Inner({ tourKeyRef }) {
   const { isTallyConnected, toggleTallyConnection } = useTallyConnection();
   const dispatch = useDispatch();
   const { activePage, isSidebarOpen, activeCompany } = useSelector(
@@ -109,6 +109,8 @@ function DashboardContent_Inner() {
       return;
     }
 
+    tourKeyRef.current = tourKey;
+
     const stepsToUse =
       activePage === Page.TallyDashboard ? tallyDashboardSteps : dashboardSteps;
 
@@ -123,7 +125,7 @@ function DashboardContent_Inner() {
     return () => {
       clearTimeout(timer);
     };
-  }, [activePage, setIsOpen, setSteps, setCurrentStep]);
+  }, [activePage, setIsOpen, setSteps, setCurrentStep, tourKeyRef]);
 
   const handleFeatureClick = (page, company) => {
     dispatch(setActiveCompany(company));
@@ -134,6 +136,7 @@ function DashboardContent_Inner() {
     dispatch(setActiveCompany(company));
     dispatch(setActivePage(page));
   };
+  
   const handleBackToTallyDashboard = () => {
     dispatch(resetActiveCompany());
     dispatch(setActivePage(Page.TallyDashboard));
@@ -225,6 +228,8 @@ function DashboardContent_Inner() {
 }
 
 export function DashboardLayout() {
+  const currentTourKeyRef = useRef("");
+
   return (
     <TourProvider
       steps={[]}
@@ -261,18 +266,14 @@ export function DashboardLayout() {
       disableInteraction={false}
       scrollSmooth={true}
       onClickMask={({ setIsOpen }) => {}}
-      beforeClose={(target) => {
-        const isTallyTourActive = document.querySelector("#main-sidebar");
-        const activePage = isTallyTourActive
-          ? "hasSeenTallyTour"
-          : "hasSeenMainTour";
-
-        localStorage.setItem(activePage, "true");
-
+      beforeClose={() => {
+        if (currentTourKeyRef.current) {
+          localStorage.setItem(currentTourKeyRef.current, "true");
+        }
         return true;
       }}
     >
-      <DashboardContent_Inner />
+      <DashboardContent_Inner tourKeyRef={currentTourKeyRef} />
     </TourProvider>
   );
 }

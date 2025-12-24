@@ -63,12 +63,6 @@ const syncLegacyFields = (state) => {
     state.selectedSalesFileId = userData.selectedSalesFileId;
     state.selectedPurchaseFileId = userData.selectedPurchaseFileId;
     state.prefetchedTallyData = userData.prefetchedTallyData || {};
-
-    console.log(
-      "🔄 syncLegacyFields - prefetchedTallyData synced:",
-      Object.keys(state.prefetchedTallyData || {}).length,
-      "companies"
-    );
   }
 };
 const findPointers = (userData, companyId, fileId) => {

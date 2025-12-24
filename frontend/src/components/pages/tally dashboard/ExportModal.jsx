@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, FileDown, FileJson, FileSpreadsheet, FileText } from "lucide-react";
+import toast from "react-hot-toast";
 
 const ExportModal = ({ isOpen, onClose, data, dataType = "transactions", onExport }) => {
   const [selectedFormat, setSelectedFormat] = useState("");
@@ -7,11 +8,8 @@ const ExportModal = ({ isOpen, onClose, data, dataType = "transactions", onExpor
 
   useEffect(() => {
     if (!isOpen) {
-      console.log("Modal closed - resetting state");
       setSelectedFormat("");
       setSelectedFile(null);
-    } else {
-      console.log("Modal opened with data:", data?.length, "items");
     }
   }, [isOpen, data]);
 
@@ -25,26 +23,19 @@ const ExportModal = ({ isOpen, onClose, data, dataType = "transactions", onExpor
   ];
 
   const handleFormatSelect = (formatId) => {
-    console.log("Format selected:", formatId);
     setSelectedFormat(formatId);
     setSelectedFile(null);
   };
 
   const handleFileSelect = (file) => {
-    console.log("File selected:", file.narration || "Untitled");
     setSelectedFile(file);
   };
 
   const handleExport = async () => {
     if (!selectedFile || !selectedFormat) {
-      console.warn("Export attempted without file or format selected");
       return;
     }
 
-    console.log("Starting export:", {
-      format: selectedFormat,
-      file: selectedFile.narration || "Untitled",
-    });
 
     const fileName = `${selectedFile.narration || "transaction"}_${
       selectedFile.date || "unknown"
@@ -53,9 +44,6 @@ const ExportModal = ({ isOpen, onClose, data, dataType = "transactions", onExpor
     try {
       if (onExport) {
         await onExport(selectedFormat, selectedFile, fileName);
-        console.log("Export completed successfully");
-      } else {
-        console.error("onExport prop is not provided");
       }
 
       setSelectedFormat("");
@@ -71,25 +59,15 @@ const ExportModal = ({ isOpen, onClose, data, dataType = "transactions", onExpor
 
   const handleExportAll = async () => {
     if (!selectedFormat) {
-      console.warn("Export All attempted without format selected");
       return;
     }
-
-    console.log("Starting Export All:", {
-      format: selectedFormat,
-      itemCount: data?.length || 0,
-    });
 
     const fileName = `all_${dataType}_${Date.now()}`;
 
     try {
       if (onExport) {
         await onExport(selectedFormat, data, fileName);
-        console.log("Export All completed successfully");
-      } else {
-        console.error("onExport prop is not provided");
       }
-
       setSelectedFormat("");
       setSelectedFile(null);
 
@@ -97,7 +75,7 @@ const ExportModal = ({ isOpen, onClose, data, dataType = "transactions", onExpor
         onClose();
       }, 100);
     } catch (error) {
-      console.error("Export All failed:", error);
+      toast.error("Export failed");
     }
   };
 

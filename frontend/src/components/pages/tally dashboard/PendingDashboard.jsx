@@ -7,7 +7,6 @@ const rowsPerPage = 7;
 export const PendingDashboard = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const rejectedTransactions = useSelector((state) => state.tally.rejectedTransactions);
-  console.log("data from rtk", rejectedTransactions)
   const totalPages = Math.ceil(rejectedTransactions.length / rowsPerPage);
   const indexOfLastRow = currentPage * rowsPerPage;
   const indexOfFirstRow = indexOfLastRow - rowsPerPage;

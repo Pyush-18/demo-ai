@@ -11,7 +11,6 @@ const ErrorCompanyCard = ({ company }) => (
       <p className="text-xs text-gray-400 mt-1">Last Sync: {company.syncDate}</p>
     </div>
     <button
-      onClick={() => console.log(`Navigating to error details for ${company.name}`)}
       className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg text-sm shadow-md transition-all duration-200"
     >
       View Details

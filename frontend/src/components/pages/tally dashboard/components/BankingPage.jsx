@@ -103,7 +103,6 @@ export const BankingPage = ({ company, onBack }) => {
 
     setIsUploading(true);
     const newFileId = nanoid();
-    console.log(data);
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
@@ -286,7 +285,7 @@ export const BankingPage = ({ company, onBack }) => {
 
           <button
             onClick={handleUploadButtonClick}
-            className="group flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium shadow-lg shadow-indigo-900/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            className="group flex items-center cursor-pointer gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium shadow-lg shadow-indigo-900/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
           >
             <Upload size={18} />
             <span>Upload File</span>

@@ -7,12 +7,6 @@ import { parseDate } from "../utils/parseDate.js";
 export const callLLM = async (req, res) => {
   const file = req.file;
   const { dateRange, bankLedger, bankName } = req.body;
-  
-  console.log("📋 Request Details:");
-  console.log("  - Date Range:", dateRange);
-  console.log("  - Bank Ledger:", bankLedger);
-  console.log("  - Bank Name:", bankName);
-  console.log("  - File:", file?.originalname);
 
   if (!file) {
     return res.status(400).json({ error: "No file uploaded." });
@@ -20,10 +14,8 @@ export const callLLM = async (req, res) => {
 
   const __dirname = path.resolve();
   const filePath = path.join(__dirname, "/uploads", file.filename);
-  console.log("  - File Path:", filePath);
 
   try {
-    console.log("\n🔄 Converting file to CSV...");
     const csvContent = convertFileToCSV(filePath, file.originalname);
     
     if (!csvContent || csvContent.trim().length === 0) {
@@ -31,9 +23,6 @@ export const callLLM = async (req, res) => {
     }
 
     const csvSize = csvContent.length;
-    console.log(`✓ CSV generated (${csvSize} characters)`);
-
-    console.log("\n🤖 Processing with Groq AI...");
     const aiResponse = await callGroqAndSegregate(
       csvContent, 
       bankLedger || "Not provided", 
@@ -48,21 +37,16 @@ export const callLLM = async (req, res) => {
       (sum, txs) => sum + (Array.isArray(txs) ? txs.length : 0),
       0
     );
-    console.log(`✓ AI processing complete - ${totalTransactionsBefore} transactions found`);
 
     let finalResponse = aiResponse;
 
     if (dateRange && dateRange.trim() !== "") {
-      console.log("\n📅 Applying date range filter...");
       
       const [startStr, endStr] = dateRange.split("-").map((d) => d.trim());
       const startDate = parseDate(startStr);
       const endDate = parseDate(endStr);
 
       if (!isNaN(startDate) && !isNaN(endDate)) {
-        console.log(`  - Start Date: ${new Date(startDate).toLocaleDateString()}`);
-        console.log(`  - End Date: ${new Date(endDate).toLocaleDateString()}`);
-
         const filteredResponse = {};
         let filteredCount = 0;
 
@@ -89,9 +73,8 @@ export const callLLM = async (req, res) => {
 
         if (Object.keys(filteredResponse).length > 0) {
           finalResponse = filteredResponse;
-          console.log(`✓ Filtered to ${filteredCount} transactions within date range`);
         } else {
-          console.warn("⚠️  No transactions found in date range, returning all data");
+          console.warn("No transactions found in date range, returning all data");
         }
       } else {
         console.warn("⚠️  Invalid date range format, returning full data");
@@ -103,11 +86,6 @@ export const callLLM = async (req, res) => {
       (sum, txs) => sum + (Array.isArray(txs) ? txs.length : 0),
       0
     );
-
-    console.log("\n✅ Processing Complete!");
-    console.log(`  - Categories: ${categoriesCount}`);
-    console.log(`  - Total Transactions: ${totalTransactionsAfter}`);
-    console.log(`  - Response Size: ${JSON.stringify(finalResponse).length} bytes\n`);
 
 
     res.status(200).json({
@@ -148,9 +126,7 @@ export const callLLM = async (req, res) => {
   } finally {
     fs.unlink(filePath, (err) => {
       if (err) {
-        console.error("❌ Error deleting file:", err);
-      } else {
-        console.log("🗑️  Uploaded file deleted:", file.filename);
+        console.error("Error deleting file:", err);
       }
     });
   }
@@ -177,9 +153,6 @@ export const extractInvoice = async (req, res) => {
       });
     }
 
-    console.log("📄 Processing invoice extraction...");
-
-b
     const fileBuffer = fs.readFileSync(req.file.path);
     const fileBlob = new Blob([fileBuffer], { type: "application/pdf" });
 
@@ -188,7 +161,6 @@ b
  
     fs.unlinkSync(req.file.path);
 
-    console.log("✅ Invoice extraction successful");
 
     return res.status(200).json({
       success: true,
@@ -197,7 +169,6 @@ b
     });
 
   } catch (error) {
-    console.error("❌ Invoice extraction error:", error);
 
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
