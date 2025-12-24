@@ -112,7 +112,7 @@ export const BankingPage = ({ company, onBack }) => {
       formData.append("bankName", data?.bankName || "");
 
       const response = await axios.post(
-        `${import.meta.env.VITE_BACKEND_BASE_URL}/llm-call`,
+        `${import.meta.env.VITE_BACKEND_BASE_URL}/api/llm-call`,
         formData,
         {
           headers: { "Content-Type": "multipart/form-data" },

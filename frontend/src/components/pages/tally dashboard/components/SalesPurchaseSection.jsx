@@ -424,7 +424,7 @@ const SalesPurchaseSection = () => {
 
        
             const response = await fetch(
-              `${import.meta.env.VITE_BACKEND_BASE_URL}/llm-call/extract-invoice`,
+              `${import.meta.env.VITE_BACKEND_BASE_URL}/api/llm-call/extract-invoice`,
               {
                 method: "POST",
                 body: formData,
