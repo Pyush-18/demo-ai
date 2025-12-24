@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
-import ExcelJS from 'exceljs';
+import ExcelJS from "exceljs";
 import {
   Upload,
   Settings,
@@ -58,10 +58,141 @@ import {
   saveSalesInvoiceToFirebase,
 } from "../../../../config/firebaseService";
 
+const fuzzyMatchStockItem = (extractedName, stockItems) => {
+  if (!extractedName || stockItems.length === 0) return null;
+
+  const normalize = (str) => {
+    return (
+      str
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, " ")
+        .replace(/\s*\[\s*/g, "[")
+        .replace(/\s*\]\s*/g, "]")
+        .replace(/\s*[xX]\s*/g, "x")
+        .replace(/\]\s*\[/g, "][")
+    );
+  };
+
+  const getCoreString = (str) => {
+    return str
+      .toLowerCase()
+      .replace(/[\[\]\s]/g, "")
+      .replace(/[xX]/g, "x");
+  };
+
+  const removeItemCode = (str) => {
+    return str.replace(/\]\[[^\]]+\]$/i, "]").trim();
+  };
+
+  const extractedNorm = normalize(extractedName);
+  const extractedCore = getCoreString(extractedName);
+  const extractedWithoutCode = removeItemCode(extractedNorm);
+  const extractedCoreWithoutCode = getCoreString(extractedWithoutCode);
+
+  for (const item of stockItems) {
+    if (normalize(item) === extractedNorm) {
+      return item;
+    }
+  }
+
+  for (const item of stockItems) {
+    const itemWithoutCode = removeItemCode(normalize(item));
+    const itemCore = getCoreString(itemWithoutCode);
+
+    if (itemCore === extractedCoreWithoutCode) {
+      return item;
+    }
+  }
+
+  for (const item of stockItems) {
+    const itemCore = getCoreString(item);
+
+    if (itemCore.includes(extractedCore) || extractedCore.includes(itemCore)) {
+      console.log("✅ Core substring match found:", item);
+      return item;
+    }
+  }
+
+  const extractedBase = extractedNorm.split("[")[0].trim();
+  let bestMatch = null;
+  let bestScore = 0;
+
+  for (const item of stockItems) {
+    const itemNorm = normalize(item);
+    const itemBase = itemNorm.split("[")[0].trim();
+
+    if (extractedBase === itemBase) {
+      const itemWithoutCode = removeItemCode(itemNorm);
+      const score = calculateSimilarity(extractedWithoutCode, itemWithoutCode);
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = item;
+      }
+    }
+  }
+
+  if (bestMatch && bestScore > 0.6) {
+    return bestMatch;
+  }
+
+  for (const item of stockItems) {
+    const itemWithoutCode = removeItemCode(normalize(item));
+    const itemCore = getCoreString(itemWithoutCode);
+
+    const distance = levenshteinDistance(extractedCoreWithoutCode, itemCore);
+    const maxLen = Math.max(extractedCoreWithoutCode.length, itemCore.length);
+    const similarity = (maxLen - distance) / maxLen;
+
+    if (similarity > 0.85) {
+      return item;
+    }
+  }
+  return null;
+};
+
+const calculateSimilarity = (str1, str2) => {
+  const longer = str1.length > str2.length ? str1 : str2;
+  const shorter = str1.length > str2.length ? str2 : str1;
+
+  if (longer.length === 0) return 1.0;
+
+  const editDistance = levenshteinDistance(longer, shorter);
+  return (longer.length - editDistance) / longer.length;
+};
+
+const levenshteinDistance = (str1, str2) => {
+  const matrix = [];
+
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i];
+  }
+
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+
+  return matrix[str2.length][str1.length];
+};
+
 const SalesPurchaseSection = () => {
   const dispatch = useDispatch();
 
- 
   const selectedCompany = useSelector(selectSelectedCompany);
   const prefetchedDataSelector = useMemo(
     () => selectPrefetchedTallyData(selectedCompany?.id),
@@ -75,7 +206,6 @@ const SalesPurchaseSection = () => {
   const { currentUserId } = useSelector((state) => state.tally);
   const selectedSalesFile = useSelector(selectSelectedSalesFile);
   const selectedPurchaseFile = useSelector(selectSelectedPurchaseFile);
-
 
   const [activeInvoiceType, setActiveInvoiceType] = useState("item");
   const [voucherType, setVoucherType] = useState("Sales");
@@ -95,7 +225,6 @@ const SalesPurchaseSection = () => {
   const [extractionError, setExtractionError] = useState(null);
   const [isLoadingTallyData, setIsLoadingTallyData] = useState(false);
 
-
   const [ledgers, setLedgers] = useState({
     allLedgers: [],
     salesLedgers: [],
@@ -108,7 +237,6 @@ const SalesPurchaseSection = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
-
 
   const [itemRows, setItemRows] = useState([
     {
@@ -131,12 +259,9 @@ const SalesPurchaseSection = () => {
       .replace(/\s+/g, " ");
   };
 
-
   const [ledgerRows, setLedgerRows] = useState([]);
 
-
   const [taxLedgerRows, setTaxLedgerRows] = useState([]);
-
 
   const [config, setConfig] = useState({
     commonLedger: true,
@@ -176,7 +301,6 @@ const SalesPurchaseSection = () => {
         );
 
         if (firebaseResult.success && firebaseResult.data) {
-
           setLedgers(firebaseResult.data.ledgers);
           setStockItems(firebaseResult.data.stockItems);
 
@@ -274,7 +398,6 @@ const SalesPurchaseSection = () => {
     }
   };
 
-  
   const totals = useMemo(() => {
     return calculateInvoiceTotals(itemRows, ledgerRows, taxLedgerRows);
   }, [itemRows, ledgerRows, taxLedgerRows]);
@@ -347,7 +470,6 @@ const SalesPurchaseSection = () => {
         if (row.id === id) {
           const updatedRow = { ...row, [field]: value };
 
-      
           if (field === "ledgerName" && value) {
             const taxRate = ledgers.ledgerTaxRates[value];
             if (taxRate) {
@@ -398,11 +520,11 @@ const SalesPurchaseSection = () => {
           const data = await file.arrayBuffer();
           const workbook = new ExcelJS.Workbook();
           await workbook.xlsx.load(data);
-          const worksheet = workbook.getWorksheet(1); 
+          const worksheet = workbook.getWorksheet(1);
 
           excelData = [];
           worksheet.eachRow((row) => {
-            excelData.push(row.values.slice(1)); 
+            excelData.push(row.values.slice(1));
           });
         }
 
@@ -418,13 +540,13 @@ const SalesPurchaseSection = () => {
           setExtractionError(null);
 
           try {
-        
             const formData = new FormData();
             formData.append("file", file);
 
-       
             const response = await fetch(
-              `${import.meta.env.VITE_BACKEND_BASE_URL}/api/llm-call/extract-invoice`,
+              `${
+                import.meta.env.VITE_BACKEND_BASE_URL
+              }/api/llm-call/extract-invoice`,
               {
                 method: "POST",
                 body: formData,
@@ -441,7 +563,6 @@ const SalesPurchaseSection = () => {
 
             const extractedData = result.data;
 
-        
             if (extractedData.voucherNo) {
               setVoucherNo(extractedData.voucherNo);
             }
@@ -455,59 +576,175 @@ const SalesPurchaseSection = () => {
               setPartyGst(extractedData.gstNumber);
             }
 
-           
             if (extractedData.items && extractedData.items.length > 0) {
-              const mappedItems = extractedData.items.map((item, index) => ({
-                id: Date.now() + index,
-              
-                stockItemName:
+              const mappedItems = extractedData.items.map((item, index) => {
+                const extractedItemName =
                   item.itemName ||
                   item.stockItemName ||
                   item.name ||
                   item.item ||
-                  "",
-                description: item.hsnCode
-                  ? `HSN: ${item.hsnCode}`
-                  : item.description || "",
-                quantity: (item.quantity || item.qty)?.toString() || "",
-                unit: item.unit || item.uom || "Nos",
-                rate:
-                  (item.ratePerUnit || item.rate || item.price)?.toString() ||
-                  "",
-                discountPercentage:
-                  item.discount && item.quantity && item.ratePerUnit
-                    ? (
-                        (item.discount / (item.quantity * item.ratePerUnit)) *
-                        100
-                      ).toFixed(2)
-                    : item.discountPercentage?.toString() || "",
-                additionalDiscountPercentage:
-                  item.additionalDiscountPercentage?.toString() || "",
-              }));
+                  "";
+
+                const matchedItemName =
+                  fuzzyMatchStockItem(extractedItemName, stockItems) ||
+                  extractedItemName;
+
+                return {
+                  id: Date.now() + index,
+                  stockItemName: matchedItemName,
+                  description: item.hsnCode
+                    ? `HSN: ${item.hsnCode}`
+                    : item.description || "",
+                  quantity: (item.quantity || item.qty)?.toString() || "",
+                  unit: item.unit || item.uom || "Nos",
+                  rate:
+                    (item.ratePerUnit || item.rate || item.price)?.toString() ||
+                    "",
+                  discountPercentage:
+                    item.discount && item.quantity && item.ratePerUnit
+                      ? (
+                          (item.discount / (item.quantity * item.ratePerUnit)) *
+                          100
+                        ).toFixed(2)
+                      : item.discountPercentage?.toString() || "",
+                  additionalDiscountPercentage:
+                    item.additionalDiscountPercentage?.toString() || "",
+                };
+              });
+
               setItemRows(mappedItems);
+
+              const unmatchedItems = mappedItems.filter(
+                (item) =>
+                  item.stockItemName && !stockItems.includes(item.stockItemName)
+              );
+
+              if (unmatchedItems.length > 0) {
+                setExtractionError(
+                  `⚠️ ${
+                    unmatchedItems.length
+                  } item(s) couldn't be matched. Please verify: ${unmatchedItems
+                    .map((i) => i.stockItemName)
+                    .join(", ")}`
+                );
+                setTimeout(() => setExtractionError(null), 10000);
+              }
             }
 
             if (extractedData.items && extractedData.items.length > 0) {
               const firstItem = extractedData.items[0];
-
               const taxRows = [];
 
               if (firstItem.cgstPercent) {
-                taxRows.push({
-                  id: Date.now(),
-                  ledgerName: "CGST",
-                  percentage: firstItem.cgstPercent.toString(),
-                  amount: extractedData.totalCGST?.toFixed(2) || "0",
-                });
+                let cgstLedger = ledgers.taxLedgers.find(
+                  (ledger) =>
+                    ledger.toLowerCase().includes("cgst") &&
+                    ledgers.ledgerTaxRates[ledger] &&
+                    Math.abs(
+                      ledgers.ledgerTaxRates[ledger] - firstItem.cgstPercent
+                    ) < 0.01
+                );
+
+                if (!cgstLedger) {
+                  cgstLedger = ledgers.taxLedgers.find(
+                    (ledger) =>
+                      ledger.toLowerCase().includes("cgst") &&
+                      (ledger.includes(`@${firstItem.cgstPercent}%`) ||
+                        ledger.includes(`@ ${firstItem.cgstPercent}%`) ||
+                        ledger.includes(` ${firstItem.cgstPercent}%`))
+                  );
+                }
+
+                if (
+                  !cgstLedger &&
+                  (firstItem.cgstPercent === 9 || firstItem.cgstPercent === 14)
+                ) {
+                  cgstLedger = ledgers.taxLedgers.find(
+                    (ledger) =>
+                      ledger.toLowerCase().includes("cgst") &&
+                      ledger.toLowerCase().includes("inward")
+                  );
+                }
+
+                if (cgstLedger) {
+                  taxRows.push({
+                    id: Date.now(),
+                    ledgerName: cgstLedger,
+                    percentage: firstItem.cgstPercent.toString(),
+                    amount: extractedData.totalCGST?.toFixed(2) || "0",
+                  });
+                } else {
+                  console.warn(
+                    `No CGST ledger found for ${firstItem.cgstPercent}%`
+                  );
+                  setExtractionError(
+                    (prev) =>
+                      (prev || "") +
+                      ` | No CGST ${firstItem.cgstPercent}% ledger found in Tally. Please create it or select manually.`
+                  );
+                  taxRows.push({
+                    id: Date.now(),
+                    ledgerName: "",
+                    percentage: firstItem.cgstPercent.toString(),
+                    amount: extractedData.totalCGST?.toFixed(2) || "0",
+                  });
+                }
               }
 
               if (firstItem.sgstPercent) {
-                taxRows.push({
-                  id: Date.now() + 1,
-                  ledgerName: "SGST",
-                  percentage: firstItem.sgstPercent.toString(),
-                  amount: extractedData.totalSGST?.toFixed(2) || "0",
-                });
+                let sgstLedger = ledgers.taxLedgers.find(
+                  (ledger) =>
+                    ledger.toLowerCase().includes("sgst") &&
+                    ledgers.ledgerTaxRates[ledger] &&
+                    Math.abs(
+                      ledgers.ledgerTaxRates[ledger] - firstItem.sgstPercent
+                    ) < 0.01
+                );
+
+                if (!sgstLedger) {
+                  sgstLedger = ledgers.taxLedgers.find(
+                    (ledger) =>
+                      ledger.toLowerCase().includes("sgst") &&
+                      (ledger.includes(`@${firstItem.sgstPercent}%`) ||
+                        ledger.includes(`@ ${firstItem.sgstPercent}%`) ||
+                        ledger.includes(` ${firstItem.sgstPercent}%`))
+                  );
+                }
+
+                if (
+                  !sgstLedger &&
+                  (firstItem.sgstPercent === 9 || firstItem.sgstPercent === 14)
+                ) {
+                  sgstLedger = ledgers.taxLedgers.find(
+                    (ledger) =>
+                      ledger.toLowerCase().includes("sgst") &&
+                      ledger.toLowerCase().includes("inward")
+                  );
+                }
+
+                if (sgstLedger) {
+                  taxRows.push({
+                    id: Date.now() + 1,
+                    ledgerName: sgstLedger,
+                    percentage: firstItem.sgstPercent.toString(),
+                    amount: extractedData.totalSGST?.toFixed(2) || "0",
+                  });
+                } else {
+                  console.warn(
+                    `No SGST ledger found for ${firstItem.sgstPercent}%`
+                  );
+                  setExtractionError(
+                    (prev) =>
+                      (prev || "") +
+                      ` | No SGST ${firstItem.sgstPercent}% ledger found in Tally. Please create it or select manually.`
+                  );
+                  taxRows.push({
+                    id: Date.now() + 1,
+                    ledgerName: "",
+                    percentage: firstItem.sgstPercent.toString(),
+                    amount: extractedData.totalSGST?.toFixed(2) || "0",
+                  });
+                }
               }
 
               if (taxRows.length > 0) {
@@ -573,7 +810,7 @@ const SalesPurchaseSection = () => {
     try {
       const invoiceData = {
         voucherType: voucherType,
-        voucherDate: voucherDate, 
+        voucherDate: voucherDate,
         voucherNo: voucherNo,
         partyName: selectedParty,
         mainLedger: selectedLedger,
@@ -608,7 +845,6 @@ const SalesPurchaseSection = () => {
         const fileId = selectedSalesFile?.id || `file_${Date.now()}`;
 
         if (!selectedSalesFile) {
-      
           dispatch(
             addSalesFile({
               companyId: selectedCompany.id,
@@ -632,7 +868,6 @@ const SalesPurchaseSection = () => {
         const fileId = selectedPurchaseFile?.id || `file_${Date.now()}`;
 
         if (!selectedPurchaseFile) {
-         
           dispatch(
             addPurchaseFile({
               companyId: selectedCompany.id,
@@ -656,7 +891,6 @@ const SalesPurchaseSection = () => {
 
       setSuccessMessage("Invoice saved successfully!");
       setTimeout(() => setSuccessMessage(null), 3000);
-
 
       resetForm();
     } catch (err) {
@@ -707,7 +941,6 @@ const SalesPurchaseSection = () => {
         return;
       }
 
-    
       const voucherXML =
         voucherType === "Sales"
           ? generateSalesVoucherXML(invoiceData)
@@ -715,7 +948,6 @@ const SalesPurchaseSection = () => {
 
       const response = await sendTallyRequest(voucherXML);
       const responseJson = xmlToJson(response);
-
 
       if (isTallyResponseSuccess(responseJson)) {
         const invoice = {
@@ -759,7 +991,7 @@ const SalesPurchaseSection = () => {
             selectedCompany.id,
             fileId,
             invoice,
-            currentUserId 
+            currentUserId
           );
 
           if (!firebaseResult.success) {
@@ -787,7 +1019,6 @@ const SalesPurchaseSection = () => {
             })
           );
 
-          
           const firebaseResult = await savePurchaseInvoiceToFirebase(
             selectedCompany.id,
             fileId,
@@ -892,7 +1123,6 @@ const SalesPurchaseSection = () => {
       <LoadingOverlay isLoading={isLoadingTallyData} />
       {/* <ReduxDebugger selectedCompany={selectedCompany} /> */}
       <div className="max-w-[1920px] mx-auto">
-     
         <div className="bg-slate-900/50 backdrop-blur-sm border border-purple-500/20 rounded-2xl p-4 mb-4">
           <div className="flex items-center justify-between">
             <div>
@@ -908,7 +1138,6 @@ const SalesPurchaseSection = () => {
           </div>
         </div>
 
-      
         {error && (
           <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-red-300">
             <AlertCircle size={18} />
@@ -921,7 +1150,7 @@ const SalesPurchaseSection = () => {
             <span className="text-sm">{successMessage}</span>
           </div>
         )}
-      
+
         {error && (
           <div className="mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-2 text-red-300">
             <AlertCircle size={18} />
@@ -934,7 +1163,7 @@ const SalesPurchaseSection = () => {
             <span className="text-sm">{successMessage}</span>
           </div>
         )}
-        
+
         {isExtracting && (
           <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-center gap-2 text-blue-300">
             <Loader size={18} className="animate-spin" />
@@ -953,7 +1182,6 @@ const SalesPurchaseSection = () => {
         id="resizable-container"
         className="relative flex gap-1 h-[calc(100vh-125px)]"
       >
-       
         <div
           style={{ width: `${leftWidth}%` }}
           className="flex-shrink-0 transition-none"
@@ -1069,7 +1297,6 @@ const SalesPurchaseSection = () => {
           </div>
         </div>
 
-   
         <div
           onMouseDown={handleMouseDown}
           className={`w-1 bg-purple-500/20 hover:bg-purple-500/40 cursor-col-resize transition-colors relative group ${
@@ -1089,7 +1316,6 @@ const SalesPurchaseSection = () => {
           className="flex-shrink-0 transition-none h-[calc(100vh-125px)]"
         >
           <div className="bg-slate-900/50 backdrop-blur-sm border border-purple-500/20 rounded-2xl overflow-hidden h-full flex flex-col">
-      
             <div className="p-4 border-b border-purple-500/20">
               <div className="flex items-center justify-between flex-wrap gap-4">
                 <div className="flex items-center gap-4">
@@ -1145,7 +1371,6 @@ const SalesPurchaseSection = () => {
             </div>
 
             <div className="flex-1 overflow-auto p-6">
-             
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
                 <div>
                   <label className="block text-purple-300 text-sm mb-2">
@@ -1313,10 +1538,8 @@ const SalesPurchaseSection = () => {
                               </td>
                               <td className="py-3 px-4">
                                 <div className="space-y-2">
-                                
                                   {stockItems.length > 0 &&
                                   !row.stockItemName ? (
-                                   
                                     <select
                                       value={row.stockItemName}
                                       onChange={(e) =>
@@ -1336,7 +1559,6 @@ const SalesPurchaseSection = () => {
                                       ))}
                                     </select>
                                   ) : (
-                                   
                                     <div className="relative">
                                       <input
                                         type="text"
@@ -1349,9 +1571,24 @@ const SalesPurchaseSection = () => {
                                           )
                                         }
                                         list={`stock-items-${row.id}`}
-                                        className="w-full px-3 py-2 bg-slate-700/60 border border-purple-500/20 hover:border-purple-500/40 focus:bg-slate-700 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 rounded-lg text-white text-sm placeholder-purple-300/30 transition-all duration-300 outline-none"
+                                        className={`w-full px-3 py-2 bg-slate-700/60 border ${
+                                          row.stockItemName &&
+                                          !stockItems.includes(
+                                            row.stockItemName
+                                          )
+                                            ? "border-yellow-500/60 ring-2 ring-yellow-500/20"
+                                            : "border-purple-500/20"
+                                        } hover:border-purple-500/40 focus:bg-slate-700 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 rounded-lg text-white text-sm placeholder-purple-300/30 transition-all duration-300 outline-none`}
                                         placeholder="Enter or select item name"
                                       />
+                                      {row.stockItemName &&
+                                        !stockItems.includes(
+                                          row.stockItemName
+                                        ) && (
+                                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-yellow-400 text-xs">
+                                            ⚠️
+                                          </span>
+                                        )}
                                       <datalist id={`stock-items-${row.id}`}>
                                         {stockItems.map((item, index) => (
                                           <option key={index} value={item} />
@@ -1492,7 +1729,6 @@ const SalesPurchaseSection = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-              
                 <div className="flex flex-col h-full">
                   <h3 className="text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-pink-200 font-semibold text-lg tracking-wide mb-4">
                     Ledger Details
@@ -1773,7 +2009,6 @@ const SalesPurchaseSection = () => {
             </div>
 
             <div className="p-6 overflow-auto max-h-[60vh]">
-              
               <div className="mb-6 p-4 bg-purple-500/5 rounded-lg border border-purple-500/20">
                 <label className="flex items-center justify-between cursor-pointer">
                   <span className="text-purple-200 font-medium">
@@ -1798,7 +2033,6 @@ const SalesPurchaseSection = () => {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-           
                 <div className="space-y-3">
                   {[
                     { key: "voucherDate", label: "Voucher Date" },
@@ -1847,7 +2081,6 @@ const SalesPurchaseSection = () => {
                   </button>
                 </div>
 
-             
                 <div className="space-y-3">
                   {[
                     { key: "costCenter", label: "Cost Center/Classes" },

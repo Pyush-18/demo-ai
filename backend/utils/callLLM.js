@@ -105,6 +105,19 @@ Group transactions logically based on their type or description (e.g., "UPI Tran
 }
 `;
 
+function normalizeItemName(itemName) {
+  if (!itemName) return "";
+
+  return itemName
+    .trim()
+    .replace(/\s+\]/g, "]")
+    .replace(/\[\s+/g, "[")
+    .replace(/\s+/g, " ")
+    .replace(/(\d+)\s*[xX]\s*(\d+)/g, "$1 X $2")
+    .replace(/[.,;]+$/, "")
+    .trim();
+}
+
 function extractCSVHeader(csvContent) {
   const lines = csvContent.trim().split("\n");
   if (lines.length === 0) return "";
@@ -233,10 +246,9 @@ function mergeChunkResults(chunkResults) {
 async function callGroqAndSegregate(fileContent, bankLedger, bankName) {
   try {
     const fileSize = fileContent.length;
-    const CHUNK_THRESHOLD = 4000; 
+    const CHUNK_THRESHOLD = 4000;
 
     if (fileSize <= CHUNK_THRESHOLD) {
-  
       const completion = await groq.chat.completions.create({
         model: "moonshotai/kimi-k2-instruct-0905",
         messages: [
@@ -331,15 +343,21 @@ function chunkPDFText(pdfText, chunkSize = 8000) {
 
 async function processPDFChunk(chunkContent, chunkIndex, totalChunks) {
   try {
-
     const systemPrompt = `
 You are an expert AI Invoice Parser specialized in Indian Tax Invoices.
 Your goal is to extract structured data from the provided invoice text.
 
+### CRITICAL ITEM NAME EXTRACTION RULES:
+1. Extract the COMPLETE item name including ALL specifications and brackets
+2. Never truncate product names - include everything: brand + variant + packaging
+3. Preserve exact format: "FEVICOL SH CONT[6 X 2KG]" not "FEVICOL SH CONT"
+4. Keep spacing: "6 X 2KG" not "6X2KG"
+5. Include weight/volume specifications
+
 ### EXTRACTION RULES:
 1. **Document Details**: Extract Document No, Document Date
 2. **Party Details**: Extract Bill to Name & Address, Party's GSTIN
-3. **Items Table**: Extract ALL line items with complete details
+3. **Items Table**: Extract ALL line items with COMPLETE details
 
 ### JSON OUTPUT FORMAT (Strict):
 {
@@ -350,7 +368,7 @@ Your goal is to extract structured data from the provided invoice text.
   "gstNumber": "string",
   "items": [
     {
-      "itemName": "string (Full description, e.g., FEVICOL SH CONT[6 X 2KG ])",
+      "itemName": "string (COMPLETE description - DO NOT truncate)",
       "hsnCode": "string",
       "quantity": number,
       "unit": "string (Case/Drum/EA)",
@@ -375,7 +393,7 @@ ${
   totalChunks > 1
     ? `This is chunk ${
         chunkIndex + 1
-      } of ${totalChunks}. Extract whatever invoice data you can find.`
+      } of ${totalChunks}. Extract whatever invoice data you can find with COMPLETE item names.`
     : ""
 }
 
@@ -390,15 +408,23 @@ Return ONLY valid JSON.
         { role: "system", content: systemPrompt },
         {
           role: "user",
-          content: `Extract data from this Indian Tax Invoice chunk:\n\n${chunkContent}`,
+          content: `Extract data from this Indian Tax Invoice chunk. Extract COMPLETE item names with ALL specifications:\n\n${chunkContent}`,
         },
       ],
       response_format: { type: "json_object" },
-      temperature: 0.1,
+      temperature: 0.05,
     });
 
     const rawResponse = completion.choices[0]?.message?.content?.trim() || "{}";
-    const parsedData = JSON.parse(rawResponse);
+    let parsedData = JSON.parse(rawResponse);
+
+    if (parsedData.items && Array.isArray(parsedData.items)) {
+      parsedData.items = parsedData.items.map((item) => ({
+        ...item,
+        itemName: normalizeItemName(item.itemName),
+      }));
+    }
+
     return parsedData;
   } catch (err) {
     console.error(
@@ -406,6 +432,232 @@ Return ONLY valid JSON.
       err.message
     );
     throw err;
+  }
+}
+
+async function extractInvoiceData(fileBlob) {
+  try {
+    const loader = new PDFLoader(fileBlob, {
+      splitPages: false,
+    });
+
+    const docs = await loader.load();
+    const pdfText = docs[0].pageContent;
+    const CHUNK_THRESHOLD = 8000;
+
+    if (pdfText.length <= CHUNK_THRESHOLD) {
+      const systemPrompt = `
+You are an expert AI Invoice Parser specialized in Indian Tax Invoices.
+Your goal is to extract structured data with MAXIMUM ACCURACY, especially for item names.
+
+### CRITICAL ITEM NAME EXTRACTION RULES:
+1. **PRESERVE COMPLETE ITEM DESCRIPTIONS** - Extract the FULL product name including:
+   - Brand name (e.g., "FEVICOL", "BULBOND")
+   - Product variant/type (e.g., "SH", "LC", "HI-PER D3", "PROBOND", "MARINE NF")
+   - Packaging specifications in brackets [6 X 2KG], [50 KG OPEN TOP], [12 X 1KG]
+   - Container type if mentioned (Drum, Container, etc.)
+   
+2. **BRACKET PRESERVATION** - Never drop or modify content inside brackets:
+   CORRECT: "FEVICOL SH CONT[6 X 2KG]"
+    WRONG: "FEVICOL SH CONT"
+   WRONG: "FEVICOL SH CONT 6X2KG"
+   
+3. **MAINTAIN EXACT SPACING**:
+   - Keep "X" with spaces: "6 X 2KG" not "6X2KG"
+   - Preserve product code spacing: "HI-PER D3" not "HIPER D3"
+   - Keep bracket format: "[5KG 2 X 5KG]" not "[5KG 2X5KG]"
+
+4. **UNIT SPECIFICATIONS** - Include weight/volume inside brackets:
+   - [5 KG] - single unit weight
+   - [12 X 1KG] - pack quantity × unit weight
+   - [50 KG OPEN TOP] - weight with container type
+   - [1 KG] 12 X 1KG - format variations
+
+5. **COMMON PRODUCT PATTERNS TO RECOGNIZE**:
+   - FEVICOL SH CONT[6 X 2KG]
+   - BULBOND LC [50 KG OPEN TOP]
+   - FEVICOL HI-PER D3 [2KG 6X2KG]
+   - FEVICOL HI-PER D3 [5KG 2 X 5KG]
+   - FEVICOL PROBOND NF[12 X 1KG]
+   - FEVICOL PROBOND NF[2 X 5KG]
+   - FEVICOL MARINE NF [5 KG]
+   - FEVICOL HIPER D3 NI [1 KG] 12 X 1KG
+   - FEVICOL HEATX NF [1LT X 10]
+
+### EXTRACTION RULES:
+1. **Document Details**: Extract Document No, Document Date
+2. **Party Details**: Extract Bill to Name & Address, Party's GSTIN
+3. **Items Table**: Extract ALL line items with complete details
+
+### JSON OUTPUT FORMAT (Strict):
+{
+  "voucherNo": "string (Document No)",
+  "voucherDate": "YYYY-MM-DD (Document Date in ISO format)",
+  "partyName": "string (Bill to Name)",
+  "partyAddress": "string (Full address)",
+  "gstNumber": "string (Party's GSTIN)",
+  "items": [
+    {
+      "itemName": "string (COMPLETE description with ALL specifications - DO NOT TRUNCATE)",
+      "hsnCode": "string (HSN/SAC Code)",
+      "quantity": number,
+      "unit": "string (Case/Drum/EA/Ltrs/Nos/Pcs)",
+      "ratePerUnit": number,
+      "totalValue": number,
+      "discount": number,
+      "taxableValue": number,
+      "cgstPercent": number (e.g., 9 for 9%),
+      "sgstPercent": number (e.g., 9 for 9%),
+      "cgstAmount": number,
+      "sgstAmount": number,
+      "totalAmount": number
+    }
+  ],
+  "subTotal": number,
+  "totalCGST": number,
+  "totalSGST": number,
+  "grandTotal": number
+}
+
+### CRITICAL REQUIREMENTS:
+- Extract COMPLETE item names - NEVER truncate or abbreviate
+- Preserve ALL brackets, specifications, and formatting
+- Extract exact unit types (Case, Drum, EA, Ltrs, Nos, etc.)
+- CGST and SGST percentages as numbers (9, not "9%" or 0.09)
+- All numeric fields MUST be calculated final numbers, NOT expressions
+- Date format must be YYYY-MM-DD (e.g., "2025-01-15")
+
+### EXAMPLES OF CORRECT EXTRACTION:
+Input: "FEVICOL SH CONT[6 X 2KG ]  Case  50  150.00"
+Output: {"itemName": "FEVICOL SH CONT[6 X 2KG]", "unit": "Case", "quantity": 50}
+
+Input: "FEVICOL MARINE NF [5 KG]"
+Output: {"itemName": "FEVICOL MARINE NF [5 KG]"}
+
+Input: "FEVICOL HIPER D3 NI [1 KG] 12 X 1KG"
+Output: {"itemName": "FEVICOL HIPER D3 NI [1 KG] 12 X 1KG"}
+
+Return ONLY valid JSON. No markdown, no explanations.
+`;
+
+      let attempts = 0;
+      const maxAttempts = 3;
+      let lastError = null;
+
+      while (attempts < maxAttempts) {
+        try {
+          const completion = await groq.chat.completions.create({
+            model: "moonshotai/kimi-k2-instruct-0905",
+            messages: [
+              { role: "system", content: systemPrompt },
+              {
+                role: "user",
+                content: `Extract data from this Indian Tax Invoice. 
+
+CRITICAL: Pay MAXIMUM attention to extracting COMPLETE item names including ALL brackets and specifications. DO NOT truncate or abbreviate product names.
+
+Invoice Text:
+${pdfText}`,
+              },
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.05,
+          });
+
+          const rawResponse =
+            completion.choices[0]?.message?.content?.trim() || "{}";
+          let parsedData = JSON.parse(rawResponse);
+
+          if (parsedData.items && Array.isArray(parsedData.items)) {
+            parsedData.items = parsedData.items.map((item) => ({
+              ...item,
+              itemName: normalizeItemName(item.itemName),
+            }));
+          }
+
+          if (
+            typeof parsedData.subTotal === "string" ||
+            typeof parsedData.grandTotal === "string"
+          ) {
+            throw new Error("Totals contain expressions instead of numbers");
+          }
+
+          if (parsedData.items && Array.isArray(parsedData.items)) {
+            const invalidItems = parsedData.items.filter(
+              (item) => !item.itemName || item.itemName.length < 5
+            );
+
+            if (invalidItems.length > 0 && attempts < maxAttempts - 1) {
+              throw new Error("Some item names appear incomplete");
+            }
+          }
+
+          console.log("✅ Successfully extracted invoice data:");
+          console.log(
+            `   Items: ${parsedData.items?.length || 0} products found`
+          );
+          parsedData.items?.forEach((item, idx) => {
+            console.log(`   ${idx + 1}. ${item.itemName}`);
+          });
+
+          return parsedData;
+        } catch (err) {
+          attempts++;
+          lastError = err;
+          console.error(
+            `⚠️  Attempt ${attempts}/${maxAttempts} failed:`,
+            err.message
+          );
+
+          if (attempts < maxAttempts) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, 1000 * attempts)
+            );
+          }
+        }
+      }
+
+      throw new Error(
+        `Failed to extract invoice data after ${maxAttempts} attempts: ${lastError.message}`
+      );
+    }
+
+    const chunks = chunkPDFText(pdfText, CHUNK_THRESHOLD);
+    console.log(`📄 Processing PDF in ${chunks.length} chunks...`);
+
+    const CONCURRENCY_LIMIT = 2;
+    const chunkResults = [];
+
+    for (let i = 0; i < chunks.length; i += CONCURRENCY_LIMIT) {
+      const batch = chunks.slice(i, i + CONCURRENCY_LIMIT);
+      const batchPromises = batch.map((chunk, batchIndex) =>
+        processPDFChunk(chunk, i + batchIndex, chunks.length)
+      );
+
+      const batchResults = await Promise.all(batchPromises);
+      chunkResults.push(...batchResults);
+
+      if (i + CONCURRENCY_LIMIT < chunks.length) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+
+    let mergedResults = mergeInvoiceChunks(chunkResults);
+
+    if (mergedResults.items && Array.isArray(mergedResults.items)) {
+      mergedResults.items = mergedResults.items.map((item) => ({
+        ...item,
+        itemName: normalizeItemName(item.itemName),
+      }));
+    }
+
+    console.log("✅ Successfully merged and extracted invoice data:");
+    console.log(`   Items: ${mergedResults.items?.length || 0} products found`);
+
+    return mergedResults;
+  } catch (err) {
+    console.error("❌ Invoice extraction failed:", err.message);
+    throw new Error(`Failed to extract invoice data: ${err.message}`);
   }
 }
 
@@ -426,7 +678,6 @@ function mergeInvoiceChunks(chunkResults) {
   const itemsMap = new Map();
 
   for (const chunk of chunkResults) {
-    // Merge header fields (use first non-empty value)
     if (chunk.voucherNo && !merged.voucherNo)
       merged.voucherNo = chunk.voucherNo;
     if (chunk.voucherDate && !merged.voucherDate)
@@ -438,19 +689,21 @@ function mergeInvoiceChunks(chunkResults) {
     if (chunk.gstNumber && !merged.gstNumber)
       merged.gstNumber = chunk.gstNumber;
 
-    // Merge items (avoid duplicates)
     if (chunk.items && Array.isArray(chunk.items)) {
       for (const item of chunk.items) {
         if (item.itemName) {
-          const key = `${item.itemName}_${item.quantity}_${item.ratePerUnit}`;
+          const normalizedName = normalizeItemName(item.itemName);
+          const key = `${normalizedName}_${item.quantity}_${item.ratePerUnit}`;
+
           if (!itemsMap.has(key)) {
-            itemsMap.set(key, item);
+            itemsMap.set(key, {
+              ...item,
+              itemName: normalizedName, 
+            });
           }
         }
       }
     }
-
-    // Use the highest values for totals
     if (chunk.subTotal > merged.subTotal) merged.subTotal = chunk.subTotal;
     if (chunk.totalCGST > merged.totalCGST) merged.totalCGST = chunk.totalCGST;
     if (chunk.totalSGST > merged.totalSGST) merged.totalSGST = chunk.totalSGST;
@@ -461,150 +714,6 @@ function mergeInvoiceChunks(chunkResults) {
   merged.items = Array.from(itemsMap.values());
 
   return merged;
-}
-async function extractInvoiceData(fileBlob) {
-  try {
-
-    const loader = new PDFLoader(fileBlob, {
-      splitPages: false,
-    });
-
-    const docs = await loader.load();
-    const pdfText = docs[0].pageContent;
-    const CHUNK_THRESHOLD = 8000;
-
-    if (pdfText.length <= CHUNK_THRESHOLD) {
-  
-
-      const systemPrompt = `
-You are an expert AI Invoice Parser specialized in Indian Tax Invoices.
-Your goal is to extract structured data from the provided invoice text.
-
-### EXTRACTION RULES:
-1. **Document Details**: Extract Document No, Document Date
-2. **Party Details**: Extract Bill to Name & Address, Party's GSTIN
-3. **Items Table**: Extract ALL line items with complete details including:
-   - Full item description (e.g., "FEVICOL SH CONT[6 X 2KG ]")
-   - Base unit (e.g., "Case", "Drum", "EA")
-   - Quantity with proper unit
-   - Rate per unit
-   - Total Value
-   - Discount amount
-   - Taxable Value
-   - CGST percentage (e.g., 9%)
-   - SGST percentage (e.g., 9%)
-   - Tax amounts
-
-### JSON OUTPUT FORMAT (Strict):
-{
-  "voucherNo": "string (Document No)",
-  "voucherDate": "YYYY-MM-DD (Document Date)",
-  "partyName": "string (Bill to Name)",
-  "partyAddress": "string (Full address)",
-  "gstNumber": "string (Party's GSTIN)",
-  "items": [
-    {
-      "itemName": "string (Full description with codes, e.g., FEVICOL SH CONT[6 X 2KG ])",
-      "hsnCode": "string (HSN/SAC Code)",
-      "quantity": number,
-      "unit": "string (Case/Drum/EA/Ltrs etc.)",
-      "ratePerUnit": number,
-      "totalValue": number,
-      "discount": number,
-      "taxableValue": number,
-      "cgstPercent": number (e.g., 9 for 9%),
-      "sgstPercent": number (e.g., 9 for 9%),
-      "cgstAmount": number,
-      "sgstAmount": number,
-      "totalAmount": number
-    }
-  ],
-  "subTotal": number (sum of all taxable values),
-  "totalCGST": number (sum of all CGST),
-  "totalSGST": number (sum of all SGST),
-  "grandTotal": number (subTotal + totalCGST + totalSGST)
-}
-
-### CRITICAL REQUIREMENTS:
-- Extract COMPLETE item names including brackets and specifications (e.g., "[6 X 2KG]", "[50 KG OPEN TOP]")
-- Extract exact unit types (Case, Drum, EA, Ltrs, etc.)
-- CGST and SGST percentages as numbers (9, not "9%" or 0.09)
-- All numeric fields MUST be calculated final numbers, NOT expressions
-- Do NOT use mathematical operators like "+", "-", "*" in JSON values
-- Calculate all totals and provide only the final result
-- If CGST/SGST is mentioned as "9%", store as number 9
-
-Return ONLY valid JSON. No markdown, no explanations, no calculations in the output.
-`;
-
-
-      let attempts = 0;
-      const maxAttempts = 3;
-      let lastError = null;
-
-      while (attempts < maxAttempts) {
-        try {
-          const completion = await groq.chat.completions.create({
-            model: "moonshotai/kimi-k2-instruct-0905",
-            messages: [
-              { role: "system", content: systemPrompt },
-              {
-                role: "user",
-                content: `Extract data from this Indian Tax Invoice. Pay special attention to item descriptions, units, and GST details:\n\n${pdfText}`,
-              },
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.1,
-          });
-
-          const rawResponse =
-            completion.choices[0]?.message?.content?.trim() || "{}";
-          const parsedData = JSON.parse(rawResponse);
-
-          if (
-            typeof parsedData.subTotal === "string" ||
-            typeof parsedData.grandTotal === "string"
-          ) {
-            throw new Error("Totals contain expressions instead of numbers");
-          }
-
-          return parsedData;
-        } catch (err) {
-          attempts++;
-          lastError = err;
-
-          if (attempts < maxAttempts) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-          }
-        }
-      }
-
-      throw lastError;
-    }
-    const chunks = chunkPDFText(pdfText, CHUNK_THRESHOLD);
-
-    const CONCURRENCY_LIMIT = 2;
-    const chunkResults = [];
-
-    for (let i = 0; i < chunks.length; i += CONCURRENCY_LIMIT) {
-      const batch = chunks.slice(i, i + CONCURRENCY_LIMIT);
-      const batchPromises = batch.map((chunk, batchIndex) =>
-        processPDFChunk(chunk, i + batchIndex, chunks.length)
-      );
-
-      const batchResults = await Promise.all(batchPromises);
-      chunkResults.push(...batchResults);
-
-      if (i + CONCURRENCY_LIMIT < chunks.length) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    }
-
-    const mergedResults = mergeInvoiceChunks(chunkResults);
-    return mergedResults;
-  } catch (err) {
-    throw new Error("Failed to extract invoice data");
-  }
 }
 
 export { callGroqAndSegregate, extractInvoiceData };
