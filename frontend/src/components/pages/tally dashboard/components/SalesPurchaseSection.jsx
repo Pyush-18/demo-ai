@@ -62,16 +62,14 @@ const fuzzyMatchStockItem = (extractedName, stockItems) => {
   if (!extractedName || stockItems.length === 0) return null;
 
   const normalize = (str) => {
-    return (
-      str
-        .toLowerCase()
-        .trim()
-        .replace(/\s+/g, " ")
-        .replace(/\s*\[\s*/g, "[")
-        .replace(/\s*\]\s*/g, "]")
-        .replace(/\s*[xX]\s*/g, "x")
-        .replace(/\]\s*\[/g, "][")
-    );
+    return str
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, " ")
+      .replace(/\s*\[\s*/g, "[")
+      .replace(/\s*\]\s*/g, "]")
+      .replace(/\s*[xX]\s*/g, "x")
+      .replace(/\]\s*\[/g, "][");
   };
 
   const getCoreString = (str) => {
@@ -224,6 +222,8 @@ const SalesPurchaseSection = () => {
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionError, setExtractionError] = useState(null);
   const [isLoadingTallyData, setIsLoadingTallyData] = useState(false);
+  const [showUnitConfirmDialog, setShowUnitConfirmDialog] = useState(false);
+  const [pendingUnitChange, setPendingUnitChange] = useState(null);
 
   const [ledgers, setLedgers] = useState({
     allLedgers: [],
@@ -946,6 +946,12 @@ const SalesPurchaseSection = () => {
           ? generateSalesVoucherXML(invoiceData)
           : generatePurchaseVoucherXML(invoiceData);
 
+      console.log("=== VOUCHER DEBUG ===");
+      console.log("Invoice Data:", JSON.stringify(invoiceData, null, 2));
+      console.log("Totals:", totals);
+      console.log("Generated XML:", voucherXML);
+      console.log("==================");
+
       const response = await sendTallyRequest(voucherXML);
       const responseJson = xmlToJson(response);
 
@@ -1117,6 +1123,37 @@ const SalesPurchaseSection = () => {
       document.body.style.userSelect = "";
     };
   }, [isDragging]);
+
+  const handleUnitChange = (id, value) => {
+    console.log(id, value)
+    if (itemRows.length > 1) {
+      setPendingUnitChange({ id, value });
+      setShowUnitConfirmDialog(true);
+    } else {
+      updateItemRow(id, "unit", value);
+    }
+  };
+
+  const confirmUnitChangeForAll = () => {
+    if (pendingUnitChange) {
+      setItemRows(
+        itemRows.map((row) => ({
+          ...row,
+          unit: pendingUnitChange.value,
+        }))
+      );
+    }
+    setShowUnitConfirmDialog(false);
+    setPendingUnitChange(null);
+  };
+
+  const cancelUnitChange = () => {
+    if (pendingUnitChange) {
+      updateItemRow(pendingUnitChange.id, "unit", pendingUnitChange.value);
+    }
+    setShowUnitConfirmDialog(false);
+    setPendingUnitChange(null);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-2">
@@ -1629,11 +1666,7 @@ const SalesPurchaseSection = () => {
                                 <select
                                   value={row.unit}
                                   onChange={(e) =>
-                                    updateItemRow(
-                                      row.id,
-                                      "unit",
-                                      e.target.value
-                                    )
+                                    handleUnitChange(row.id, e.target.value)
                                   }
                                   className="w-full px-2 py-2 bg-slate-700/60 border border-purple-500/20 hover:bg-slate-700 focus:border-purple-500 rounded-lg text-white text-xs transition-all duration-300 outline-none appearance-none cursor-pointer text-center"
                                 >
@@ -2163,11 +2196,20 @@ const SalesPurchaseSection = () => {
           </div>
         </div>
       )}
+       <UnitConfirmDialog
+          isOpen={showUnitConfirmDialog}
+          onConfirm={confirmUnitChangeForAll}
+          onCancel={cancelUnitChange}
+          unit={pendingUnitChange?.value}
+        />
       <datalist id="stock-items">
         {stockItems.map((item) => (
           <option key={item} value={item} />
         ))}
       </datalist>
+     
+       
+      
     </div>
   );
 };
@@ -2280,6 +2322,49 @@ const ReduxDebugger = ({ selectedCompany }) => {
     </div>
   );
 };
+
+function UnitConfirmDialog({ isOpen, onConfirm, onCancel, unit }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-slate-900 border border-purple-500/30 rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="p-6 border-b border-purple-500/20">
+          <h3 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">
+            Apply Unit to All Items?
+          </h3>
+        </div>
+
+        <div className="p-6">
+          <p className="text-purple-200 mb-4">
+            Do you want to apply the unit "
+            <span className="font-semibold text-purple-100">{unit}</span>" to
+            all items in the list?
+          </p>
+          <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg flex items-center gap-2 text-yellow-300 text-sm">
+            <AlertCircle size={16} />
+            <span>This will update the unit field for all existing items.</span>
+          </div>
+        </div>
+
+        <div className="p-6 border-t border-purple-500/20 flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="px-6 py-2 rounded-lg bg-slate-700 text-purple-200 hover:bg-slate-600 transition-all"
+          >
+            No, Only This Item
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-6 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600 transition-all"
+          >
+            Yes, Apply to All
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function LoadingOverlay({ isLoading }) {
   if (!isLoading) return null;
